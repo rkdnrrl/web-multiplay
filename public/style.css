@@ -37,7 +37,8 @@ canvas { display: block; }
   color: #333;
 }
 
-#nameInput {
+#nameInput,
+#roomInput {
   padding: 10px 12px;
   font-size: 16px;
   border: 1px solid #ccc;
@@ -45,8 +46,58 @@ canvas { display: block; }
   outline: none;
 }
 
-#nameInput:focus {
+#nameInput:focus,
+#roomInput:focus {
   border-color: #4a90e2;
+}
+
+#roomListWrap {
+  border: 1px solid #e4e4e4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+#roomListTitle {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+#roomList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.room-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.room-item button {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid #4a90e2;
+  background: #4a90e2;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.room-item button:disabled {
+  background: #aaa;
+  border-color: #aaa;
+  cursor: not-allowed;
 }
 
 #joinBtn {
@@ -74,6 +125,40 @@ canvas { display: block; }
   font-size: 14px;
   line-height: 1.6;
   pointer-events: none;
+}
+
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.crosshair-v,
+.crosshair-h {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+.crosshair-v {
+  left: 50%;
+  top: 2px;
+  width: 2px;
+  height: 18px;
+  transform: translateX(-50%);
+}
+
+.crosshair-h {
+  top: 50%;
+  left: 2px;
+  width: 18px;
+  height: 2px;
+  transform: translateY(-50%);
 }
 
 .name-tag {
