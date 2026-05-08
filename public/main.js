@@ -115,9 +115,21 @@ window.addEventListener('resize', () => {
 const SPEED = 6;
 const BOUND = 24;
 const SEND_INTERVAL_MS = 50;
+const GROUND_Y = 0.5;
+const JUMP_VELOCITY = 8;
+const GRAVITY = 20;
 
 let lastTime = performance.now();
 let lastSent = 0;
+let verticalVelocity = 0;
+let jumpQueued = false;
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !e.repeat) {
+    jumpQueued = true;
+    e.preventDefault();
+  }
+});
 
 function animate() {
   requestAnimationFrame(animate);
@@ -141,7 +153,21 @@ function animate() {
       pos.z = Math.max(-BOUND, Math.min(BOUND, pos.z + dz * SPEED * dt));
     }
 
-    const target = me.mesh.position;
+    const pos = me.mesh.position;
+    const onGround = pos.y <= GROUND_Y + 0.001;
+    if (jumpQueued && onGround) {
+      verticalVelocity = JUMP_VELOCITY;
+    }
+    jumpQueued = false;
+
+    verticalVelocity -= GRAVITY * dt;
+    pos.y += verticalVelocity * dt;
+    if (pos.y < GROUND_Y) {
+      pos.y = GROUND_Y;
+      if (verticalVelocity < 0) verticalVelocity = 0;
+    }
+
+    const target = pos;
     camera.position.x += (target.x - camera.position.x) * 0.15;
     camera.position.z += (target.z + 12 - camera.position.z) * 0.15;
     camera.position.y = 8;
