@@ -39,9 +39,18 @@ scene.add(grid);
 
 const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
 const players = {};
+const enemies = {};
 let myId = null;
 
 function createPlayer(p) {
+  const existing = players[p.id];
+  if (existing) {
+    scene.remove(existing.mesh);
+    existing.mesh.geometry = null;
+    existing.mesh.material.dispose();
+    delete players[p.id];
+  }
+
   const mesh = new THREE.Mesh(
     cubeGeo,
     new THREE.MeshLambertMaterial({ color: new THREE.Color(p.color) })
@@ -68,6 +77,37 @@ function removePlayer(id) {
   delete players[id];
 }
 
+function createEnemy(e) {
+  const existing = enemies[e.id];
+  if (existing) {
+    scene.remove(existing.mesh);
+    existing.mesh.geometry = null;
+    existing.mesh.material.dispose();
+    delete enemies[e.id];
+  }
+
+  const mesh = new THREE.Mesh(
+    cubeGeo,
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(e.color || 'hsl(0, 80%, 55%)') })
+  );
+  mesh.position.set(e.x, e.y, e.z);
+  scene.add(mesh);
+
+  const div = document.createElement('div');
+  div.className = 'name-tag';
+  div.textContent = e.name || 'Enemy';
+  const label = new CSS2DObject(div);
+  label.position.set(0, 0.9, 0);
+  mesh.add(label);
+
+  enemies[e.id] = {
+    mesh,
+    label,
+    data: e,
+    targetPosition: new THREE.Vector3(e.x, e.y, e.z),
+  };
+}
+
 const socket = io();
 
 const overlay = document.getElementById('overlay');
@@ -89,9 +129,10 @@ nameInput.addEventListener('keydown', (e) => {
 });
 nameInput.focus();
 
-socket.on('init', ({ id, players: list }) => {
+socket.on('init', ({ id, players: list, enemies: enemyList }) => {
   myId = id;
   Object.values(list).forEach(createPlayer);
+  Object.values(enemyList || {}).forEach(createEnemy);
 });
 socket.on('player-joined', createPlayer);
 socket.on('player-left', removePlayer);
@@ -99,6 +140,24 @@ socket.on('player-moved', ({ id, x, y, z }) => {
   const p = players[id];
   if (!p || id === myId) return;
   p.mesh.position.set(x, y, z);
+});
+socket.on('enemies-moved', (movedEnemies) => {
+  if (!Array.isArray(movedEnemies)) return;
+  movedEnemies.forEach((enemyPos) => {
+    let enemy = enemies[enemyPos.id];
+    if (!enemy) {
+      createEnemy({
+        id: enemyPos.id,
+        name: `Enemy-${enemyPos.id + 1}`,
+        color: 'hsl(0, 80%, 55%)',
+        x: enemyPos.x,
+        y: enemyPos.y,
+        z: enemyPos.z,
+      });
+      enemy = enemies[enemyPos.id];
+    }
+    enemy.targetPosition.set(enemyPos.x, enemyPos.y, enemyPos.z);
+  });
 });
 
 const keys = {};
@@ -118,6 +177,7 @@ const SEND_INTERVAL_MS = 50;
 const GROUND_Y = 0.5;
 const JUMP_VELOCITY = 8;
 const GRAVITY = 20;
+const ENEMY_SMOOTHING = 12;
 
 let lastTime = performance.now();
 let lastSent = 0;
@@ -136,6 +196,7 @@ function animate() {
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
+  const enemyLerpAlpha = 1 - Math.exp(-ENEMY_SMOOTHING * dt);
 
   const me = players[myId];
   if (me) {
@@ -179,7 +240,11 @@ function animate() {
     }
   }
 
-  playerCountEl.textContent = `Players: ${Object.keys(players).length}`;
+  Object.values(enemies).forEach((enemy) => {
+    enemy.mesh.position.lerp(enemy.targetPosition, enemyLerpAlpha);
+  });
+
+  playerCountEl.textContent = `Players: ${Object.keys(players).length} / Enemies: ${Object.keys(enemies).length}`;
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
 }
