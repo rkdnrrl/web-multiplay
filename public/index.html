@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multiplay Cube Game</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="overlay">
+    <div id="login">
+      <h2>Multiplay Cube</h2>
+      <input id="nameInput" placeholder="이름을 입력하세요" maxlength="20" autocomplete="off">
+      <button id="joinBtn">입장</button>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div>WASD: 이동</div>
+    <div id="playerCount"></div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
