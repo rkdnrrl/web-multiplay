@@ -177,9 +177,55 @@ const mobileFireBtn = document.getElementById('mobileFireBtn');
 const mobileJumpBtn = document.getElementById('mobileJumpBtn');
 const hudHintsDesktop = document.getElementById('hudHintsDesktop');
 const hudHintsMobile = document.getElementById('hudHintsMobile');
+const authLoading = document.getElementById('authLoading');
+const authError = document.getElementById('authError');
+const guestFallbackBtn = document.getElementById('guestFallbackBtn');
+const alpAccountRow = document.getElementById('alpAccountRow');
+const guestNameRow = document.getElementById('guestNameRow');
+const alpNicknameEl = document.getElementById('alpNickname');
 
 let currentSessionId = 'lobby';
 let joined = false;
+
+const urlParams = new URLSearchParams(window.location.search);
+const urlAlpToken = urlParams.get('token');
+let joinToken = urlAlpToken || null;
+const platformApi = window.__ALP_PLATFORM_API__ || '';
+
+function setJoinButtonEnabled(on) {
+  if (joinBtn) joinBtn.disabled = !on;
+}
+
+function applyGuestPlayUi() {
+  joinToken = null;
+  authError?.classList.add('hidden');
+  guestFallbackBtn?.classList.add('hidden');
+  alpAccountRow?.classList.add('hidden');
+  guestNameRow?.classList.remove('hidden');
+  if (nameInput) {
+    nameInput.readOnly = false;
+    nameInput.value = '';
+  }
+}
+
+function initNoTokenGuestUi() {
+  authLoading?.classList.add('hidden');
+  authError?.classList.add('hidden');
+  guestFallbackBtn?.classList.add('hidden');
+  alpAccountRow?.classList.add('hidden');
+  guestNameRow?.classList.remove('hidden');
+  joinToken = null;
+  setJoinButtonEnabled(true);
+}
+
+guestFallbackBtn?.addEventListener('click', () => {
+  applyGuestPlayUi();
+  nameInput?.focus();
+});
+
+if (roomInput) {
+  roomInput.value = urlParams.get('room') || 'lobby';
+}
 
 function renderRoomList(rooms) {
   if (!roomListEl) return;
@@ -213,41 +259,85 @@ function renderRoomList(rooms) {
   });
 }
 
-// URL ?token= 으로 ALP 플랫폼에서 넘어온 경우 닉네임 고정
-const urlParams = new URLSearchParams(window.location.search);
-const alpToken = urlParams.get('token');
-const platformApi = window.__ALP_PLATFORM_API__ || '';
+function initAuthUi() {
+  if (!urlAlpToken) {
+    initNoTokenGuestUi();
+    nameInput?.focus();
+    return;
+  }
 
-if (alpToken && platformApi) {
+  if (!platformApi) {
+    authLoading?.classList.add('hidden');
+    if (authError) {
+      authError.textContent = '플랫폼 연동 설정이 없어 로그인 확인을 할 수 없습니다. 게스트 닉네임으로 플레이해 주세요.';
+      authError.classList.remove('hidden');
+    }
+    applyGuestPlayUi();
+    setJoinButtonEnabled(true);
+    nameInput?.focus();
+    return;
+  }
+
+  joinToken = urlAlpToken;
+  guestNameRow?.classList.add('hidden');
+  alpAccountRow?.classList.add('hidden');
+  authError?.classList.add('hidden');
+  guestFallbackBtn?.classList.add('hidden');
+  authLoading?.classList.remove('hidden');
+  setJoinButtonEnabled(false);
+
   fetch(`${platformApi}/api/auth/me`, {
-    headers: { Authorization: `Bearer ${alpToken}` },
+    headers: { Authorization: `Bearer ${urlAlpToken}` },
   })
-    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => {
+      if (!r.ok) throw new Error('verify');
+      return r.json();
+    })
     .then((data) => {
-      if (data?.user) {
-        nameInput.value = data.user.nickname;
-        nameInput.readOnly = true;
-        nameInput.classList.add('locked');
-        const badge = document.getElementById('alpBadge');
-        const nickEl = document.getElementById('alpNickname');
-        if (badge && nickEl) {
-          nickEl.textContent = data.user.nickname;
-          badge.classList.remove('hidden');
-        }
-      }
+      const nick = data?.user?.nickname;
+      if (!nick) throw new Error('no-nick');
+      if (alpNicknameEl) alpNicknameEl.textContent = nick;
+      alpAccountRow?.classList.remove('hidden');
+      authError?.classList.add('hidden');
+      guestFallbackBtn?.classList.add('hidden');
+      joinToken = urlAlpToken;
+      roomInput?.focus();
     })
     .catch(() => {
-      /* 표시 실패해도 join 시 서버가 다시 검증함 */
+      if (authError) {
+        authError.textContent = '계정 정보를 불러오지 못했습니다. 입장 시 서버에서 로그인을 다시 확인합니다. 게스트로 플레이하려면 아래 버튼을 누르세요.';
+        authError.classList.remove('hidden');
+      }
+      guestFallbackBtn?.classList.remove('hidden');
+      alpAccountRow?.classList.add('hidden');
+      guestNameRow?.classList.add('hidden');
+      joinToken = urlAlpToken;
+    })
+    .finally(() => {
+      authLoading?.classList.add('hidden');
+      setJoinButtonEnabled(true);
     });
 }
 
+initAuthUi();
+
 function join() {
   if (joined) return;
-  const name = nameInput.value.trim() || 'Player';
   const sessionId = roomInput?.value.trim() || 'lobby';
   currentSessionId = sessionId;
-  // 토큰이 있으면 같이 보내 서버에서 닉네임 강제
-  socket.emit('join', { name, sessionId, token: alpToken || undefined });
+
+  if (joinToken) {
+    socket.emit('join', { name: '', sessionId, token: joinToken });
+    return;
+  }
+
+  const name = nameInput?.value.trim() || '';
+  if (!name) {
+    alert('닉네임을 입력해 주세요.');
+    nameInput?.focus();
+    return;
+  }
+  socket.emit('join', { name, sessionId });
 }
 
 joinBtn.addEventListener('click', join);
@@ -257,10 +347,6 @@ nameInput.addEventListener('keydown', (e) => {
 roomInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') join();
 });
-if (roomInput) {
-  roomInput.value = new URLSearchParams(window.location.search).get('room') || 'lobby';
-}
-nameInput.focus();
 
 socket.on('init', ({ id, players: list, enemies: enemyList, wave }) => {
   joined = true;
@@ -291,6 +377,11 @@ socket.on('init', ({ id, players: list, enemies: enemyList, wave }) => {
 socket.on('join-error', ({ message }) => {
   joined = false;
   alert(message || '방 입장에 실패했습니다.');
+  if (message && /로그인|세션|만료|ALP/i.test(message) && urlAlpToken) {
+    applyGuestPlayUi();
+    setJoinButtonEnabled(true);
+    nameInput?.focus();
+  }
 });
 socket.on('room-list', (rooms) => {
   if (joined) return;

@@ -10,8 +10,17 @@
   <div id="overlay">
     <div id="login">
       <h2>Multiplay Cube</h2>
-      <div id="alpBadge" class="hidden">ALP 계정으로 입장: <strong id="alpNickname"></strong></div>
-      <input id="nameInput" placeholder="이름을 입력하세요" maxlength="20" autocomplete="off">
+      <div id="authLoading" class="hidden auth-loading">로그인 정보 확인 중…</div>
+      <div id="authError" class="hidden auth-error"></div>
+      <button type="button" id="guestFallbackBtn" class="hidden secondary-btn">게스트로 입장 (닉네임 직접 입력)</button>
+      <div id="alpAccountRow" class="hidden alp-account-row">
+        <div>로그인 계정: <strong id="alpNickname"></strong></div>
+        <div class="alp-account-hint">게임에서는 위 닉네임으로 표시됩니다.</div>
+      </div>
+      <div id="guestNameRow">
+        <label id="guestNameLabel" for="nameInput">닉네임 (게스트)</label>
+        <input id="nameInput" placeholder="플레이할 닉네임을 입력하세요" maxlength="20" autocomplete="off">
+      </div>
       <input id="roomInput" placeholder="방 이름 (예: lobby)" maxlength="30" autocomplete="off">
       <div id="roomListWrap">
         <div id="roomListTitle">활성 방 (최대 4명)</div>
