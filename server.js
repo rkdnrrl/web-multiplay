@@ -401,6 +401,18 @@ io.on('connection', (socket) => {
       if (Object.keys(session.enemies).length === 0) {
         scheduleNextWave(session);
       }
+
+      // ALP 로그인 유저에게 코인 지급
+      if (attacker.alpUserId) {
+        fetch(`${PLATFORM_API_URL}/api/coins/add`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-game-api-key': process.env.GAME_API_KEY || 'game-secret-key',
+          },
+          body: JSON.stringify({ userId: attacker.alpUserId, amount: 10 }),
+        }).catch((err) => console.error('[coins] add error', err.message));
+      }
     }
   });
 
