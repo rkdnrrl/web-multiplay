@@ -186,12 +186,13 @@ const alpNicknameEl = document.getElementById('alpNickname');
 const serverCapacityRow = document.getElementById('serverCapacityRow');
 const serverCapacityCurrentEl = document.getElementById('serverCapacityCurrent');
 const serverCapacityMaxEl = document.getElementById('serverCapacityMax');
+const serverCapacityBreakdownEl = document.getElementById('serverCapacityBreakdown');
 
 let currentSessionId = 'lobby';
 let joined = false;
 let lobbyJoinAuthBlocked = false;
 let lobbyServerFull = false;
-let lastServerCapacity = { current: 0, max: 100 };
+let lastServerCapacity = { current: 0, max: 100, inGame: 0, inLobby: 0 };
 
 const urlParams = new URLSearchParams(window.location.search);
 const urlAlpToken = urlParams.get('token');
@@ -210,18 +211,24 @@ function refreshLobbyJoinButton() {
   joinBtn.textContent = lobbyServerFull ? '서버 정원 초과' : '입장';
 }
 
-function updateServerCapacityDisplay({ current, max }) {
-  lastServerCapacity = {
-    current: typeof current === 'number' ? current : lastServerCapacity.current,
-    max: typeof max === 'number' ? max : lastServerCapacity.max,
-  };
+function updateServerCapacityDisplay(payload) {
+  const cur = typeof payload.current === 'number' ? payload.current : lastServerCapacity.current;
+  const max = typeof payload.max === 'number' ? payload.max : lastServerCapacity.max;
+  const inGame = typeof payload.inGame === 'number' ? payload.inGame : lastServerCapacity.inGame;
+  const inLobby = typeof payload.inLobby === 'number'
+    ? payload.inLobby
+    : Math.max(0, cur - inGame);
+  lastServerCapacity = { current: cur, max, inGame, inLobby };
   if (serverCapacityMaxEl) {
-    serverCapacityMaxEl.textContent = String(lastServerCapacity.max);
+    serverCapacityMaxEl.textContent = String(max);
   }
   if (serverCapacityCurrentEl) {
-    serverCapacityCurrentEl.textContent = String(lastServerCapacity.current);
+    serverCapacityCurrentEl.textContent = String(cur);
   }
-  lobbyServerFull = lastServerCapacity.current >= lastServerCapacity.max;
+  if (serverCapacityBreakdownEl) {
+    serverCapacityBreakdownEl.textContent = `게임 중 ${inGame} · 입장 대기 ${inLobby}`;
+  }
+  lobbyServerFull = cur >= max;
   serverCapacityRow?.classList.toggle('server-full', lobbyServerFull);
   if (!joined) {
     refreshLobbyJoinButton();
@@ -353,10 +360,7 @@ function initAuthUi() {
 
 socket.on('server-capacity', (payload) => {
   if (!payload || typeof payload !== 'object') return;
-  updateServerCapacityDisplay({
-    current: payload.current,
-    max: payload.max,
-  });
+  updateServerCapacityDisplay(payload);
 });
 
 initAuthUi();

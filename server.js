@@ -17,9 +17,12 @@ app.get('/config.js', (req, res) => {
 
 // 플랫폼 서버가 접속자 수를 조회하는 엔드포인트
 app.get('/status', (req, res) => {
-  const totalPlayers = countTotalPlayers();
+  const inGame = countTotalPlayers();
+  const totalConnections = io.sockets.sockets.size;
   res.json({
-    totalPlayers,
+    totalPlayers: inGame,
+    totalConnections,
+    inLobby: Math.max(0, totalConnections - inGame),
     totalRooms: sessions.size,
     maxTotalPlayers: MAX_TOTAL_PLAYERS,
   });
@@ -138,11 +141,20 @@ function broadcastRoomList() {
   io.emit('room-list', getRoomListPayload());
 }
 
-function broadcastServerCapacity() {
-  io.emit('server-capacity', {
-    current: countTotalPlayers(),
+function getServerCapacityPayload() {
+  const total = io.sockets.sockets.size;
+  const inGame = countTotalPlayers();
+  const inLobby = Math.max(0, total - inGame);
+  return {
+    current: total,
+    inGame,
+    inLobby,
     max: MAX_TOTAL_PLAYERS,
-  });
+  };
+}
+
+function broadcastServerCapacity() {
+  io.emit('server-capacity', getServerCapacityPayload());
 }
 
 function broadcastLobbyMeta() {
@@ -320,11 +332,18 @@ setInterval(() => {
 }, TICK_MS);
 
 io.on('connection', (socket) => {
+  if (io.sockets.sockets.size > MAX_TOTAL_PLAYERS) {
+    socket.emit('join-error', {
+      message: `서버 접속 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명, 입장 대기 포함)`,
+    });
+    socket.disconnect(true);
+    broadcastServerCapacity();
+    return;
+  }
+
   socket.emit('room-list', getRoomListPayload());
-  socket.emit('server-capacity', {
-    current: countTotalPlayers(),
-    max: MAX_TOTAL_PLAYERS,
-  });
+  socket.emit('server-capacity', getServerCapacityPayload());
+  broadcastServerCapacity();
 
   socket.on('join', async ({ name: rawName, sessionId: rawSessionId, token } = {}) => {
     const sessionId = sanitizeSessionId(rawSessionId);
@@ -337,7 +356,7 @@ io.on('connection', (socket) => {
 
     if (countTotalPlayers() >= MAX_TOTAL_PLAYERS) {
       socket.emit('join-error', {
-        message: `서버 동시 접속 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명)`,
+        message: `게임 입장 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명, 입장 대기·게임 중 합산 접속 기준)`,
       });
       return;
     }
@@ -368,7 +387,7 @@ io.on('connection', (socket) => {
 
     if (countTotalPlayers() >= MAX_TOTAL_PLAYERS) {
       socket.emit('join-error', {
-        message: `서버 동시 접속 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명)`,
+        message: `게임 입장 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명, 입장 대기·게임 중 합산 접속 기준)`,
       });
       return;
     }
@@ -460,12 +479,14 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const sessionId = socket.data.sessionId;
-    if (!sessionId) return;
-    const session = sessions.get(sessionId);
-    if (!session) return;
-    if (removePlayerFromSession(session, socket.id)) {
-      broadcastLobbyMeta();
+    if (sessionId) {
+      const session = sessions.get(sessionId);
+      if (session && removePlayerFromSession(session, socket.id)) {
+        broadcastLobbyMeta();
+        return;
+      }
     }
+    broadcastServerCapacity();
   });
 });
 
