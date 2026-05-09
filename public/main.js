@@ -183,17 +183,49 @@ const guestFallbackBtn = document.getElementById('guestFallbackBtn');
 const alpAccountRow = document.getElementById('alpAccountRow');
 const guestNameRow = document.getElementById('guestNameRow');
 const alpNicknameEl = document.getElementById('alpNickname');
+const serverCapacityRow = document.getElementById('serverCapacityRow');
+const serverCapacityCurrentEl = document.getElementById('serverCapacityCurrent');
+const serverCapacityMaxEl = document.getElementById('serverCapacityMax');
 
 let currentSessionId = 'lobby';
 let joined = false;
+let lobbyJoinAuthBlocked = false;
+let lobbyServerFull = false;
+let lastServerCapacity = { current: 0, max: 100 };
 
 const urlParams = new URLSearchParams(window.location.search);
 const urlAlpToken = urlParams.get('token');
 let joinToken = urlAlpToken || null;
 const platformApi = window.__ALP_PLATFORM_API__ || '';
 
-function setJoinButtonEnabled(on) {
-  if (joinBtn) joinBtn.disabled = !on;
+function setLobbyAuthBlocked(on) {
+  lobbyJoinAuthBlocked = !!on;
+  refreshLobbyJoinButton();
+}
+
+function refreshLobbyJoinButton() {
+  if (!joinBtn) return;
+  const blocked = lobbyJoinAuthBlocked || lobbyServerFull;
+  joinBtn.disabled = blocked;
+  joinBtn.textContent = lobbyServerFull ? '서버 정원 초과' : '입장';
+}
+
+function updateServerCapacityDisplay({ current, max }) {
+  lastServerCapacity = {
+    current: typeof current === 'number' ? current : lastServerCapacity.current,
+    max: typeof max === 'number' ? max : lastServerCapacity.max,
+  };
+  if (serverCapacityMaxEl) {
+    serverCapacityMaxEl.textContent = String(lastServerCapacity.max);
+  }
+  if (serverCapacityCurrentEl) {
+    serverCapacityCurrentEl.textContent = String(lastServerCapacity.current);
+  }
+  lobbyServerFull = lastServerCapacity.current >= lastServerCapacity.max;
+  serverCapacityRow?.classList.toggle('server-full', lobbyServerFull);
+  if (!joined) {
+    refreshLobbyJoinButton();
+  }
 }
 
 function applyGuestPlayUi() {
@@ -215,7 +247,7 @@ function initNoTokenGuestUi() {
   alpAccountRow?.classList.add('hidden');
   guestNameRow?.classList.remove('hidden');
   joinToken = null;
-  setJoinButtonEnabled(true);
+  setLobbyAuthBlocked(false);
 }
 
 guestFallbackBtn?.addEventListener('click', () => {
@@ -273,7 +305,7 @@ function initAuthUi() {
       authError.classList.remove('hidden');
     }
     applyGuestPlayUi();
-    setJoinButtonEnabled(true);
+    setLobbyAuthBlocked(false);
     nameInput?.focus();
     return;
   }
@@ -284,7 +316,7 @@ function initAuthUi() {
   authError?.classList.add('hidden');
   guestFallbackBtn?.classList.add('hidden');
   authLoading?.classList.remove('hidden');
-  setJoinButtonEnabled(false);
+  setLobbyAuthBlocked(true);
 
   fetch(`${platformApi}/api/auth/me`, {
     headers: { Authorization: `Bearer ${urlAlpToken}` },
@@ -315,9 +347,17 @@ function initAuthUi() {
     })
     .finally(() => {
       authLoading?.classList.add('hidden');
-      setJoinButtonEnabled(true);
+      setLobbyAuthBlocked(false);
     });
 }
+
+socket.on('server-capacity', (payload) => {
+  if (!payload || typeof payload !== 'object') return;
+  updateServerCapacityDisplay({
+    current: payload.current,
+    max: payload.max,
+  });
+});
 
 initAuthUi();
 
@@ -379,7 +419,7 @@ socket.on('join-error', ({ message }) => {
   alert(message || '방 입장에 실패했습니다.');
   if (message && /로그인|세션|만료|ALP/i.test(message) && urlAlpToken) {
     applyGuestPlayUi();
-    setJoinButtonEnabled(true);
+    setLobbyAuthBlocked(false);
     nameInput?.focus();
   }
 });

@@ -10,6 +10,9 @@
   <div id="overlay">
     <div id="login">
       <h2>Multiplay Cube</h2>
+      <div id="serverCapacityRow" class="server-capacity-row" aria-live="polite">
+        전체 접속: <span id="serverCapacityCurrent">—</span> / <span id="serverCapacityMax">100</span>명
+      </div>
       <div id="authLoading" class="hidden auth-loading">로그인 정보 확인 중…</div>
       <div id="authError" class="hidden auth-error"></div>
       <button type="button" id="guestFallbackBtn" class="hidden secondary-btn">게스트로 입장 (닉네임 직접 입력)</button>

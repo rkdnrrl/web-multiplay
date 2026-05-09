@@ -17,9 +17,12 @@ app.get('/config.js', (req, res) => {
 
 // 플랫폼 서버가 접속자 수를 조회하는 엔드포인트
 app.get('/status', (req, res) => {
-  const totalPlayers = Array.from(sessions.values())
-    .reduce((sum, s) => sum + Object.keys(s.players).length, 0);
-  res.json({ totalPlayers, totalRooms: sessions.size });
+  const totalPlayers = countTotalPlayers();
+  res.json({
+    totalPlayers,
+    totalRooms: sessions.size,
+    maxTotalPlayers: MAX_TOTAL_PLAYERS,
+  });
 });
 
 async function verifyTokenWithPlatform(token) {
@@ -57,8 +60,17 @@ const WAVE_GROWTH_PER_WAVE = 2;
 const WAVE_DELAY_MS = 2500;
 const SESSION_ID_MAX_LEN = 30;
 const MAX_PLAYERS_PER_SESSION = 4;
+const MAX_TOTAL_PLAYERS = 100;
 const IDLE_TIMEOUT_MS = 30_000;
 const sessions = new Map();
+
+function countTotalPlayers() {
+  let n = 0;
+  sessions.forEach((session) => {
+    n += Object.keys(session.players).length;
+  });
+  return n;
+}
 
 function randomColor() {
   const h = Math.floor(Math.random() * 360);
@@ -124,6 +136,18 @@ function getRoomListPayload() {
 
 function broadcastRoomList() {
   io.emit('room-list', getRoomListPayload());
+}
+
+function broadcastServerCapacity() {
+  io.emit('server-capacity', {
+    current: countTotalPlayers(),
+    max: MAX_TOTAL_PLAYERS,
+  });
+}
+
+function broadcastLobbyMeta() {
+  broadcastRoomList();
+  broadcastServerCapacity();
 }
 
 function removePlayerFromSession(session, playerId) {
@@ -291,12 +315,16 @@ setInterval(() => {
     }
   });
   if (roomListDirty) {
-    broadcastRoomList();
+    broadcastLobbyMeta();
   }
 }, TICK_MS);
 
 io.on('connection', (socket) => {
   socket.emit('room-list', getRoomListPayload());
+  socket.emit('server-capacity', {
+    current: countTotalPlayers(),
+    max: MAX_TOTAL_PLAYERS,
+  });
 
   socket.on('join', async ({ name: rawName, sessionId: rawSessionId, token } = {}) => {
     const sessionId = sanitizeSessionId(rawSessionId);
@@ -304,6 +332,13 @@ io.on('connection', (socket) => {
     if (session.players[socket.id]) return;
     if (Object.keys(session.players).length >= MAX_PLAYERS_PER_SESSION) {
       socket.emit('join-error', { message: `방 정원은 최대 ${MAX_PLAYERS_PER_SESSION}명입니다.` });
+      return;
+    }
+
+    if (countTotalPlayers() >= MAX_TOTAL_PLAYERS) {
+      socket.emit('join-error', {
+        message: `서버 동시 접속 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명)`,
+      });
       return;
     }
 
@@ -328,6 +363,13 @@ io.on('connection', (socket) => {
     );
     if (hasDuplicateName) {
       socket.emit('join-error', { message: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해 주세요.' });
+      return;
+    }
+
+    if (countTotalPlayers() >= MAX_TOTAL_PLAYERS) {
+      socket.emit('join-error', {
+        message: `서버 동시 접속 인원이 가득 찼습니다. (최대 ${MAX_TOTAL_PLAYERS}명)`,
+      });
       return;
     }
 
@@ -356,7 +398,7 @@ io.on('connection', (socket) => {
       wave: session.currentWave,
     });
     socket.to(sessionId).emit('player-joined', session.players[socket.id]);
-    broadcastRoomList();
+    broadcastLobbyMeta();
   });
 
   socket.on('move', (pos) => {
@@ -422,7 +464,7 @@ io.on('connection', (socket) => {
     const session = sessions.get(sessionId);
     if (!session) return;
     if (removePlayerFromSession(session, socket.id)) {
-      broadcastRoomList();
+      broadcastLobbyMeta();
     }
   });
 });

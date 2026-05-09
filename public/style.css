@@ -37,6 +37,23 @@ canvas { display: block; }
   color: #333;
 }
 
+.server-capacity-row {
+  text-align: center;
+  font-size: 14px;
+  color: #444;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: #f0f4fa;
+  border-radius: 8px;
+  border: 1px solid #d8e4f4;
+}
+
+.server-capacity-row.server-full {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
 #nameInput,
 #roomInput {
   padding: 10px 12px;
