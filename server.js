@@ -258,6 +258,19 @@ function bounceEnemy(enemy) {
 setInterval(() => {
   const now = Date.now();
   const dt = TICK_MS / 1000;
+  let lobbyKicked = false;
+  io.sockets.sockets.forEach((sock) => {
+    if (sock.data.sessionId) return;
+    const lastLobby = sock.data.lastLobbyActivityAt || 0;
+    if (now - lastLobby < IDLE_TIMEOUT_MS) return;
+    sock.emit('join-error', { message: '입장 화면에서 30초 동안 응답이 없어 연결이 종료되었습니다.' });
+    sock.disconnect(true);
+    lobbyKicked = true;
+  });
+  if (lobbyKicked) {
+    broadcastServerCapacity();
+  }
+
   let roomListDirty = false;
   sessions.forEach((session) => {
     Object.keys(session.players).forEach((playerId) => {
@@ -341,11 +354,19 @@ io.on('connection', (socket) => {
     return;
   }
 
+  socket.data.lastLobbyActivityAt = Date.now();
+
+  socket.on('lobby-ping', () => {
+    if (socket.data.sessionId) return;
+    socket.data.lastLobbyActivityAt = Date.now();
+  });
+
   socket.emit('room-list', getRoomListPayload());
   socket.emit('server-capacity', getServerCapacityPayload());
   broadcastServerCapacity();
 
   socket.on('join', async ({ name: rawName, sessionId: rawSessionId, token } = {}) => {
+    socket.data.lastLobbyActivityAt = Date.now();
     const sessionId = sanitizeSessionId(rawSessionId);
     const session = getOrCreateSession(sessionId);
     if (session.players[socket.id]) return;

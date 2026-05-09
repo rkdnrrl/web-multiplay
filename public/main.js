@@ -199,6 +199,35 @@ const urlAlpToken = urlParams.get('token');
 let joinToken = urlAlpToken || null;
 const platformApi = window.__ALP_PLATFORM_API__ || '';
 
+let lobbyPingIntervalId = null;
+
+function stopLobbyPing() {
+  if (lobbyPingIntervalId != null) {
+    clearInterval(lobbyPingIntervalId);
+    lobbyPingIntervalId = null;
+  }
+}
+
+function startLobbyPing() {
+  stopLobbyPing();
+  const send = () => {
+    if (joined) {
+      stopLobbyPing();
+      return;
+    }
+    socket.emit('lobby-ping');
+  };
+  send();
+  lobbyPingIntervalId = setInterval(send, 10_000);
+}
+
+socket.on('connect', () => {
+  if (!joined) startLobbyPing();
+});
+if (socket.connected) {
+  startLobbyPing();
+}
+
 function setLobbyAuthBlocked(on) {
   lobbyJoinAuthBlocked = !!on;
   refreshLobbyJoinButton();
@@ -394,6 +423,7 @@ roomInput?.addEventListener('keydown', (e) => {
 
 socket.on('init', ({ id, players: list, enemies: enemyList, wave }) => {
   joined = true;
+  stopLobbyPing();
   overlay.classList.add('hidden');
   hud.classList.remove('hidden');
   crosshair?.classList.remove('hidden');
