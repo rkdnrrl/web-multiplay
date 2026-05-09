@@ -15,6 +15,13 @@ app.get('/config.js', (req, res) => {
   res.send(`window.__ALP_PLATFORM_API__ = ${JSON.stringify(PLATFORM_API_URL)};`);
 });
 
+// 플랫폼 서버가 접속자 수를 조회하는 엔드포인트
+app.get('/status', (req, res) => {
+  const totalPlayers = Array.from(sessions.values())
+    .reduce((sum, s) => sum + Object.keys(s.players).length, 0);
+  res.json({ totalPlayers, totalRooms: sessions.size });
+});
+
 async function verifyTokenWithPlatform(token) {
   if (!token) return null;
   try {
