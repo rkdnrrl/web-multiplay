@@ -38,8 +38,11 @@ grid.position.y = 0.01;
 scene.add(grid);
 
 const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+const bulletGeo = new THREE.SphereGeometry(0.08, 8, 8);
+const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xfff27a });
 const players = {};
 const enemies = {};
+const bullets = [];
 let myId = null;
 let currentWave = 1;
 const raycaster = new THREE.Raycaster();
@@ -163,6 +166,18 @@ const roomInput = document.getElementById('roomInput');
 const joinBtn = document.getElementById('joinBtn');
 const playerCountEl = document.getElementById('playerCount');
 const roomListEl = document.getElementById('roomList');
+const mobileUiPref = document.getElementById('mobileUiPref');
+const mobileUiToggleBtn = document.getElementById('mobileUiToggleBtn');
+const mobileUiPanel = document.getElementById('mobileUiPanel');
+const mobileStickArea = document.getElementById('mobileStickArea');
+const mobileStickRing = document.getElementById('mobileStickRing');
+const mobileStickKnob = document.getElementById('mobileStickKnob');
+const mobileLookArea = document.getElementById('mobileLookArea');
+const mobileFireBtn = document.getElementById('mobileFireBtn');
+const mobileJumpBtn = document.getElementById('mobileJumpBtn');
+const hudHintsDesktop = document.getElementById('hudHintsDesktop');
+const hudHintsMobile = document.getElementById('hudHintsMobile');
+
 let currentSessionId = 'lobby';
 let joined = false;
 
@@ -198,12 +213,41 @@ function renderRoomList(rooms) {
   });
 }
 
+// URL ?token= 으로 ALP 플랫폼에서 넘어온 경우 닉네임 고정
+const urlParams = new URLSearchParams(window.location.search);
+const alpToken = urlParams.get('token');
+const platformApi = window.__ALP_PLATFORM_API__ || '';
+
+if (alpToken && platformApi) {
+  fetch(`${platformApi}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${alpToken}` },
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (data?.user) {
+        nameInput.value = data.user.nickname;
+        nameInput.readOnly = true;
+        nameInput.classList.add('locked');
+        const badge = document.getElementById('alpBadge');
+        const nickEl = document.getElementById('alpNickname');
+        if (badge && nickEl) {
+          nickEl.textContent = data.user.nickname;
+          badge.classList.remove('hidden');
+        }
+      }
+    })
+    .catch(() => {
+      /* 표시 실패해도 join 시 서버가 다시 검증함 */
+    });
+}
+
 function join() {
   if (joined) return;
   const name = nameInput.value.trim() || 'Player';
   const sessionId = roomInput?.value.trim() || 'lobby';
   currentSessionId = sessionId;
-  socket.emit('join', { name, sessionId });
+  // 토큰이 있으면 같이 보내 서버에서 닉네임 강제
+  socket.emit('join', { name, sessionId, token: alpToken || undefined });
 }
 
 joinBtn.addEventListener('click', join);
@@ -223,6 +267,14 @@ socket.on('init', ({ id, players: list, enemies: enemyList, wave }) => {
   overlay.classList.add('hidden');
   hud.classList.remove('hidden');
   crosshair?.classList.remove('hidden');
+  mobileUiToggleBtn?.classList.remove('hidden');
+  refreshMobileUiDom();
+  for (let i = bullets.length - 1; i >= 0; i -= 1) {
+    const bullet = bullets[i];
+    if (bullet.mesh.parent) bullet.mesh.parent.remove(bullet.mesh);
+    if (bullet.mesh.material) bullet.mesh.material.dispose();
+    bullets.splice(i, 1);
+  }
   clearEntityMap(players);
   clearEntityMap(enemies);
   myId = id;
@@ -316,33 +368,23 @@ window.addEventListener('resize', () => {
 window.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
   if (overlay && !overlay.classList.contains('hidden')) return;
+  if (mobileUiEnabled) return;
   if (document.pointerLockElement !== renderer.domElement) return;
   const me = players[myId];
   if (!me || !me.data?.alive) return;
-
-  pointer.x = 0;
-  pointer.y = 0;
-  raycaster.setFromCamera(pointer, camera);
-
-  const enemyMeshes = Object.values(enemies).map((enemy) => enemy.mesh);
-  if (enemyMeshes.length === 0) return;
-  const hits = raycaster.intersectObjects(enemyMeshes, false);
-  if (hits.length === 0) return;
-
-  const hitMesh = hits[0].object;
-  const enemyId = Object.keys(enemies).find((id) => enemies[id].mesh === hitMesh);
-  if (enemyId === undefined) return;
-  socket.emit('attack-enemy', { enemyId: Number(enemyId) });
+  fireBullet();
 });
 
 renderer.domElement.addEventListener('click', () => {
   if (overlay && !overlay.classList.contains('hidden')) return;
+  if (mobileUiEnabled) return;
   if (document.pointerLockElement !== renderer.domElement) {
     renderer.domElement.requestPointerLock();
   }
 });
 
 window.addEventListener('mousemove', (event) => {
+  if (mobileUiEnabled) return;
   if (document.pointerLockElement !== renderer.domElement) return;
   const me = players[myId];
   if (!me || me.data?.alive === false) return;
@@ -371,6 +413,198 @@ const CAMERA_HEIGHT = 3.2;
 const CAMERA_PITCH_MIN = -1.5;
 const CAMERA_PITCH_MAX = 1.5;
 const MOUSE_SENSITIVITY = 0.0025;
+const BULLET_SPEED = 35;
+const BULLET_MAX_LIFETIME = 1.5;
+const BULLET_HIT_RADIUS = 0.6;
+
+const MOBILE_UI_STORAGE_KEY = 'multiplay-mobile-ui';
+const MOBILE_LOOK_SENSITIVITY = 0.0045;
+const MOBILE_FIRE_COOLDOWN_MS = 280;
+
+let mobileUiEnabled = false;
+const stickInput = { x: 0, y: 0 };
+let stickPointerId = null;
+let lookPointerId = null;
+let lastLookClientX = 0;
+let lastLookClientY = 0;
+let lastMobileFireTime = 0;
+
+function readStoredMobileUi() {
+  try {
+    const v = localStorage.getItem(MOBILE_UI_STORAGE_KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch (_) {
+    /* ignore */
+  }
+  return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+function writeStoredMobileUi(on) {
+  try {
+    localStorage.setItem(MOBILE_UI_STORAGE_KEY, on ? '1' : '0');
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function updateHudHintsForMobile() {
+  if (!hudHintsDesktop || !hudHintsMobile) return;
+  if (mobileUiEnabled) {
+    hudHintsDesktop.classList.add('hidden');
+    hudHintsMobile.classList.remove('hidden');
+  } else {
+    hudHintsDesktop.classList.remove('hidden');
+    hudHintsMobile.classList.add('hidden');
+  }
+}
+
+function refreshMobileUiDom() {
+  const showPanel = mobileUiEnabled && joined;
+  if (mobileUiPanel) {
+    mobileUiPanel.classList.toggle('hidden', !showPanel);
+    mobileUiPanel.setAttribute('aria-hidden', showPanel ? 'false' : 'true');
+  }
+  document.body.classList.toggle('mobile-controls-active', showPanel);
+  updateHudHintsForMobile();
+  if (mobileUiToggleBtn) {
+    mobileUiToggleBtn.setAttribute('aria-pressed', mobileUiEnabled ? 'true' : 'false');
+    mobileUiToggleBtn.textContent = mobileUiEnabled ? '조작 UI 끄기' : '조작 UI 켜기';
+  }
+}
+
+function setMobileUiEnabled(on, persist) {
+  mobileUiEnabled = on;
+  if (!on) resetStickVisual();
+  if (mobileUiPref) mobileUiPref.checked = on;
+  if (persist) writeStoredMobileUi(on);
+  refreshMobileUiDom();
+  if (on && document.pointerLockElement === renderer.domElement) {
+    document.exitPointerLock();
+  }
+}
+
+mobileUiPref?.addEventListener('change', () => {
+  setMobileUiEnabled(!!mobileUiPref.checked, true);
+});
+
+mobileUiToggleBtn?.addEventListener('click', () => {
+  setMobileUiEnabled(!mobileUiEnabled, true);
+});
+
+function resetStickVisual() {
+  if (mobileStickKnob) mobileStickKnob.style.transform = 'translate(0, 0)';
+  stickInput.x = 0;
+  stickInput.y = 0;
+}
+
+function updateStickFromEvent(clientX, clientY) {
+  if (!mobileStickRing || !mobileStickKnob) return;
+  const r = mobileStickRing.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const maxR = Math.max(12, r.width / 2 - 26);
+  let dx = clientX - cx;
+  let dy = clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > maxR && dist > 0) {
+    dx = (dx / dist) * maxR;
+    dy = (dy / dist) * maxR;
+  }
+  mobileStickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  stickInput.x = dx / maxR;
+  stickInput.y = -dy / maxR;
+}
+
+mobileStickArea?.addEventListener('pointerdown', (e) => {
+  if (!mobileUiEnabled || !joined) return;
+  e.preventDefault();
+  stickPointerId = e.pointerId;
+  mobileStickArea.setPointerCapture(e.pointerId);
+  updateStickFromEvent(e.clientX, e.clientY);
+});
+
+mobileStickArea?.addEventListener('pointermove', (e) => {
+  if (stickPointerId !== e.pointerId) return;
+  updateStickFromEvent(e.clientX, e.clientY);
+});
+
+function endStick(e) {
+  if (stickPointerId !== e.pointerId) return;
+  stickPointerId = null;
+  try {
+    mobileStickArea?.releasePointerCapture(e.pointerId);
+  } catch (_) {
+    /* ignore */
+  }
+  resetStickVisual();
+}
+
+mobileStickArea?.addEventListener('pointerup', endStick);
+mobileStickArea?.addEventListener('pointercancel', endStick);
+
+mobileLookArea?.addEventListener('pointerdown', (e) => {
+  if (!mobileUiEnabled || !joined) return;
+  e.preventDefault();
+  lookPointerId = e.pointerId;
+  mobileLookArea.setPointerCapture(e.pointerId);
+  lastLookClientX = e.clientX;
+  lastLookClientY = e.clientY;
+});
+
+mobileLookArea?.addEventListener('pointermove', (e) => {
+  if (lookPointerId !== e.pointerId) return;
+  const me = players[myId];
+  if (!me || me.data?.alive === false) return;
+  const dlx = e.clientX - lastLookClientX;
+  const dly = e.clientY - lastLookClientY;
+  lastLookClientX = e.clientX;
+  lastLookClientY = e.clientY;
+  const yawDelta = dlx * MOBILE_LOOK_SENSITIVITY;
+  playerYaw = normalizeAngle(playerYaw + yawDelta);
+  me.mesh.rotation.y = -playerYaw;
+  me.data.ry = -playerYaw;
+  cameraPitch = Math.max(
+    CAMERA_PITCH_MIN,
+    Math.min(CAMERA_PITCH_MAX, cameraPitch + dly * MOBILE_LOOK_SENSITIVITY)
+  );
+});
+
+function endLook(e) {
+  if (lookPointerId !== e.pointerId) return;
+  lookPointerId = null;
+  try {
+    mobileLookArea?.releasePointerCapture(e.pointerId);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+mobileLookArea?.addEventListener('pointerup', endLook);
+mobileLookArea?.addEventListener('pointercancel', endLook);
+
+function tryMobileFire() {
+  const now = performance.now();
+  if (now - lastMobileFireTime < MOBILE_FIRE_COOLDOWN_MS) return;
+  const me = players[myId];
+  if (!me || !me.data?.alive) return;
+  lastMobileFireTime = now;
+  fireBullet();
+}
+
+mobileFireBtn?.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!mobileUiEnabled || !joined) return;
+  tryMobileFire();
+});
+
+mobileJumpBtn?.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!mobileUiEnabled || !joined) return;
+  jumpQueued = true;
+});
+
+setMobileUiEnabled(readStoredMobileUi(), false);
 
 let lastTime = performance.now();
 let lastSent = 0;
@@ -384,6 +618,30 @@ function normalizeAngle(angle) {
     return Math.atan2(Math.sin(angle), Math.cos(angle));
   }
   return angle;
+}
+
+function fireBullet() {
+  const me = players[myId];
+  if (!me) return;
+
+  const direction = new THREE.Vector3();
+  camera.getWorldDirection(direction);
+  direction.normalize();
+
+  const playerForward = new THREE.Vector3(Math.sin(playerYaw), 0, -Math.cos(playerYaw)).normalize();
+  const start = me.mesh.position.clone()
+    .add(new THREE.Vector3(0, 1.3, 0))
+    .addScaledVector(playerForward, 0.75);
+  const mesh = new THREE.Mesh(bulletGeo, bulletMaterial.clone());
+  mesh.position.copy(start);
+  scene.add(mesh);
+
+  bullets.push({
+    mesh,
+    direction,
+    life: BULLET_MAX_LIFETIME,
+    hitEnemyIds: new Set(),
+  });
 }
 
 window.addEventListener('keydown', (e) => {
@@ -413,6 +671,10 @@ function animate() {
       if (keys['s']) { dx -= forwardX; dz -= forwardZ; }
       if (keys['a']) { dx -= rightX; dz -= rightZ; }
       if (keys['d']) { dx += rightX; dz += rightZ; }
+      if (mobileUiEnabled && (stickInput.x !== 0 || stickInput.y !== 0)) {
+        dx += rightX * stickInput.x + forwardX * stickInput.y;
+        dz += rightZ * stickInput.x + forwardZ * stickInput.y;
+      }
     }
 
     if (dx !== 0 || dz !== 0) {
@@ -457,6 +719,44 @@ function animate() {
   Object.values(enemies).forEach((enemy) => {
     enemy.mesh.position.lerp(enemy.targetPosition, enemyLerpAlpha);
   });
+
+  for (let i = bullets.length - 1; i >= 0; i -= 1) {
+    const bullet = bullets[i];
+    bullet.mesh.position.addScaledVector(bullet.direction, BULLET_SPEED * dt);
+    bullet.life -= dt;
+
+    let shouldDestroy = bullet.life <= 0;
+    if (!shouldDestroy) {
+      if (
+        Math.abs(bullet.mesh.position.x) > BOUND + 2 ||
+        bullet.mesh.position.y < 0.05 ||
+        Math.abs(bullet.mesh.position.z) > BOUND + 2
+      ) {
+        shouldDestroy = true;
+      }
+    }
+
+    if (!shouldDestroy) {
+      Object.keys(enemies).forEach((enemyId) => {
+        if (shouldDestroy) return;
+        if (bullet.hitEnemyIds.has(enemyId)) return;
+        const enemy = enemies[enemyId];
+        if (!enemy?.data?.alive) return;
+        const dist = bullet.mesh.position.distanceTo(enemy.mesh.position);
+        if (dist <= BULLET_HIT_RADIUS) {
+          bullet.hitEnemyIds.add(enemyId);
+          socket.emit('attack-enemy', { enemyId: Number(enemyId) });
+          shouldDestroy = true;
+        }
+      });
+    }
+
+    if (shouldDestroy) {
+      if (bullet.mesh.parent) bullet.mesh.parent.remove(bullet.mesh);
+      if (bullet.mesh.material) bullet.mesh.material.dispose();
+      bullets.splice(i, 1);
+    }
+  }
 
   const myPlayer = players[myId];
   const hpText = myPlayer?.data?.hp != null ? Math.ceil(myPlayer.data.hp) : '-';

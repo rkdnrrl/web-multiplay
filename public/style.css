@@ -127,6 +127,31 @@ canvas { display: block; }
   pointer-events: none;
 }
 
+/* Phone landscape: HUD eats too much vertical space — compact + hints hidden */
+@media (orientation: landscape) and (max-height: 480px) {
+  #hud {
+    top: 4px;
+    left: 4px;
+    padding: 4px 8px;
+    font-size: 10px;
+    line-height: 1.25;
+    max-width: min(46vw, 240px);
+    border-radius: 4px;
+  }
+
+  #hudHintsDesktop,
+  #hudHintsMobile {
+    display: none !important;
+  }
+
+  #playerCount {
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
 #crosshair {
   position: fixed;
   left: 50%;
@@ -171,4 +196,187 @@ canvas { display: block; }
   white-space: nowrap;
   user-select: none;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #444;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pref-row input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+#mobileUiToggleBtn {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 8;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+#mobileUiToggleBtn:active {
+  background: rgba(30, 30, 30, 0.75);
+}
+
+body.mobile-controls-active {
+  touch-action: none;
+}
+
+#mobileUiPanel {
+  position: fixed;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+#mobileStickArea {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 46%;
+  max-width: 280px;
+  height: 42%;
+  max-height: 260px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#mobileStickHint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+#mobileStickRing {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  left: 28px;
+  bottom: 36px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+#mobileStickKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  margin-top: -26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+  border: 2px solid rgba(70, 130, 220, 0.85);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  transform: translate(0, 0);
+  transition: box-shadow 0.15s ease;
+}
+
+#mobileLookArea {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 54%;
+  height: 100%;
+  pointer-events: auto;
+  touch-action: none;
+  background: transparent;
+}
+
+#mobileActions {
+  position: absolute;
+  right: 14px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  pointer-events: auto;
+}
+
+#mobileJumpBtn,
+#mobileFireBtn {
+  min-width: 96px;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+#mobileJumpBtn {
+  background: linear-gradient(180deg, #5cb85c, #449d44);
+  color: #fff;
+}
+
+#mobileFireBtn {
+  background: linear-gradient(180deg, #e85d5d, #c9302c);
+  color: #fff;
+}
+
+#mobileJumpBtn:active,
+#mobileFireBtn:active {
+  filter: brightness(0.92);
+}
+
+@media (max-width: 520px) {
+  #mobileStickRing {
+    width: 100px;
+    height: 100px;
+    left: 22px;
+    bottom: 32px;
+  }
+
+  #mobileStickKnob {
+    width: 44px;
+    height: 44px;
+    margin-left: -22px;
+    margin-top: -22px;
+  }
+}
+
+/* ALP 플랫폼 로그인 배지 */
+#alpBadge {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+#alpBadge strong { font-weight: 700; }
+#nameInput.locked {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: #f4f4f5;
 }

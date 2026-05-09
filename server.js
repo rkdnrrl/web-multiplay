@@ -3,8 +3,32 @@ const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 
+// ALP 플랫폼 백엔드 주소 (회원 토큰 검증용)
+const PLATFORM_API_URL = process.env.PLATFORM_API_URL || 'http://43.201.102.212:4000';
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 클라이언트가 부팅 시 플랫폼 API URL을 알 수 있도록 노출
+app.get('/config.js', (req, res) => {
+  res.type('application/javascript');
+  res.send(`window.__ALP_PLATFORM_API__ = ${JSON.stringify(PLATFORM_API_URL)};`);
+});
+
+async function verifyTokenWithPlatform(token) {
+  if (!token) return null;
+  try {
+    const res = await fetch(`${PLATFORM_API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.user || null;
+  } catch (err) {
+    console.error('[token-verify] error', err.message);
+    return null;
+  }
+}
 
 const server = http.createServer(app);
 const io = new Server(server);
@@ -232,7 +256,7 @@ setInterval(() => {
 io.on('connection', (socket) => {
   socket.emit('room-list', getRoomListPayload());
 
-  socket.on('join', ({ name: rawName, sessionId: rawSessionId } = {}) => {
+  socket.on('join', async ({ name: rawName, sessionId: rawSessionId, token } = {}) => {
     const sessionId = sanitizeSessionId(rawSessionId);
     const session = getOrCreateSession(sessionId);
     if (session.players[socket.id]) return;
@@ -241,11 +265,25 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const name = (rawName || 'Player').toString().trim().slice(0, 20) || 'Player';
+    // 토큰이 있으면 플랫폼에 검증 → 검증된 닉네임 강제 사용 (위조 불가)
+    let name;
+    let alpUserId = null;
+    if (token) {
+      const verified = await verifyTokenWithPlatform(token);
+      if (!verified) {
+        socket.emit('join-error', { message: 'ALP 로그인 세션이 만료되었습니다. 플랫폼에서 다시 로그인해주세요.' });
+        return;
+      }
+      name = verified.nickname;
+      alpUserId = verified.id;
+    } else {
+      name = (rawName || 'Player').toString().trim().slice(0, 20) || 'Player';
+    }
     const pos = spawnPosition();
     session.players[socket.id] = {
       id: socket.id,
       name,
+      alpUserId,
       color: randomColor(),
       x: pos.x,
       y: pos.y,
