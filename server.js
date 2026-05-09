@@ -57,6 +57,7 @@ const WAVE_GROWTH_PER_WAVE = 2;
 const WAVE_DELAY_MS = 2500;
 const SESSION_ID_MAX_LEN = 30;
 const MAX_PLAYERS_PER_SESSION = 4;
+const IDLE_TIMEOUT_MS = 30_000;
 const sessions = new Map();
 
 function randomColor() {
@@ -83,6 +84,10 @@ function clamp(value, min, max) {
 function sanitizeSessionId(rawSessionId) {
   const sessionId = (rawSessionId || 'lobby').toString().trim().slice(0, SESSION_ID_MAX_LEN);
   return sessionId || 'lobby';
+}
+
+function normalizeNickname(name) {
+  return (name || '').toString().trim().toLowerCase();
 }
 
 function createEmptySession(id) {
@@ -119,6 +124,16 @@ function getRoomListPayload() {
 
 function broadcastRoomList() {
   io.emit('room-list', getRoomListPayload());
+}
+
+function removePlayerFromSession(session, playerId) {
+  if (!session?.players?.[playerId]) return false;
+  delete session.players[playerId];
+  io.to(session.id).emit('player-left', playerId);
+  if (Object.keys(session.players).length === 0) {
+    sessions.delete(session.id);
+  }
+  return true;
 }
 
 function createEnemy(session, id) {
@@ -207,7 +222,24 @@ function bounceEnemy(enemy) {
 setInterval(() => {
   const now = Date.now();
   const dt = TICK_MS / 1000;
+  let roomListDirty = false;
   sessions.forEach((session) => {
+    Object.keys(session.players).forEach((playerId) => {
+      const player = session.players[playerId];
+      if (!player) return;
+      if (now - (player.lastActiveAt || 0) < IDLE_TIMEOUT_MS) return;
+      if (!removePlayerFromSession(session, playerId)) return;
+      roomListDirty = true;
+      const idleSocket = io.sockets.sockets.get(playerId);
+      if (idleSocket) {
+        idleSocket.emit('join-error', { message: '30초 동안 동작이 없어 방에서 퇴장되었습니다.' });
+        idleSocket.data.sessionId = undefined;
+        idleSocket.disconnect(true);
+      }
+    });
+
+    if (!sessions.has(session.id)) return;
+
     const movedEnemies = [];
     const playerUpdates = [];
 
@@ -258,6 +290,9 @@ setInterval(() => {
       io.to(session.id).emit('players-updated', playerUpdates);
     }
   });
+  if (roomListDirty) {
+    broadcastRoomList();
+  }
 }, TICK_MS);
 
 io.on('connection', (socket) => {
@@ -286,6 +321,16 @@ io.on('connection', (socket) => {
     } else {
       name = (rawName || 'Player').toString().trim().slice(0, 20) || 'Player';
     }
+
+    const normalizedName = normalizeNickname(name);
+    const hasDuplicateName = Object.values(session.players).some(
+      (player) => normalizeNickname(player.name) === normalizedName
+    );
+    if (hasDuplicateName) {
+      socket.emit('join-error', { message: '이미 사용 중인 닉네임입니다. 다른 닉네임을 입력해 주세요.' });
+      return;
+    }
+
     const pos = spawnPosition();
     session.players[socket.id] = {
       id: socket.id,
@@ -298,6 +343,7 @@ io.on('connection', (socket) => {
       ry: 0,
       hp: PLAYER_MAX_HP,
       alive: true,
+      lastActiveAt: Date.now(),
     };
 
     socket.data.sessionId = sessionId;
@@ -327,6 +373,7 @@ io.on('connection', (socket) => {
     p.y = pos.y;
     p.z = pos.z;
     if (typeof pos.ry === 'number') p.ry = pos.ry;
+    p.lastActiveAt = Date.now();
     socket.to(sessionId).emit('player-moved', { id: socket.id, x: p.x, y: p.y, z: p.z, ry: p.ry });
   });
 
@@ -337,6 +384,7 @@ io.on('connection', (socket) => {
     if (!session) return;
     const attacker = session.players[socket.id];
     if (!attacker || !attacker.alive) return;
+    attacker.lastActiveAt = Date.now();
     const enemy = session.enemies[enemyId];
     if (!enemy || !enemy.alive) return;
 
@@ -361,15 +409,9 @@ io.on('connection', (socket) => {
     if (!sessionId) return;
     const session = sessions.get(sessionId);
     if (!session) return;
-    if (!session.players[socket.id]) return;
-
-    delete session.players[socket.id];
-    io.to(sessionId).emit('player-left', socket.id);
-
-    if (Object.keys(session.players).length === 0) {
-      sessions.delete(sessionId);
+    if (removePlayerFromSession(session, socket.id)) {
+      broadcastRoomList();
     }
-    broadcastRoomList();
   });
 });
 
