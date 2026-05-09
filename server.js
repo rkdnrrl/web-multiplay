@@ -4,7 +4,7 @@ const express = require('express');
 const { Server } = require('socket.io');
 
 // ALP 플랫폼 백엔드 주소 (회원 토큰 검증용)
-const PLATFORM_API_URL = process.env.PLATFORM_API_URL || 'http://43.201.102.212:4000';
+const PLATFORM_API_URL = process.env.PLATFORM_API_URL || 'http://43.203.215.179:4000';
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
